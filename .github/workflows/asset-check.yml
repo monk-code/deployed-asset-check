@@ -10,16 +10,22 @@ name: Deployed assets
 on:
   workflow_call:
     inputs:
+      base_url:
+        description: 'Check this URL instead of waiting for a preview.'
+        type: string
+        required: false
+        default: ''
       sha:
         description: 'Commit to find a preview for. Defaults to the PR head.'
         type: string
         required: false
-      max-pages:
+        default: ''
+      max_pages:
         description: 'Upper bound on pages crawled.'
         type: number
         required: false
         default: 50
-      concurrency:
+      request_concurrency:
         description: 'Parallel requests while checking references.'
         type: number
         required: false
@@ -34,27 +40,13 @@ jobs:
       deployments: read
 
     steps:
-      # Pin the scripts to the same ref the caller pinned this workflow to, so
-      # `@v1` cannot silently pair a v1 workflow with a main-branch script.
-      # job_workflow_ref is the reusable workflow's own path; the caller's is
-      # github.workflow_ref, which would resolve to the wrong repository.
-      - name: Resolve this workflow's ref
-        id: source
-        env:
-          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
-        run: |
-          ref="${JOB_WORKFLOW_REF##*@}"
-          if [ -z "$ref" ] || [ "$ref" = "$JOB_WORKFLOW_REF" ]; then
-            echo "::error::Could not read a ref from job_workflow_ref ('$JOB_WORKFLOW_REF')"
-            exit 1
-          fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "Checker source: $ref"
-
+      # Pinned to the tag this workflow is published under, so `@v1` cannot pair
+      # a v1 workflow with a main-branch script. Bump both together when cutting
+      # a new major.
       - uses: actions/checkout@v7
         with:
           repository: monk-code/deployed-asset-check
-          ref: ${{ steps.source.outputs.ref }}
+          ref: v1
           path: .deployed-asset-check
 
       # Node 24 runs the .ts scripts directly via type stripping. The runner's
@@ -65,14 +57,17 @@ jobs:
 
       - name: Wait for the Vercel preview
         id: preview
+        if: inputs.base_url == ''
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
+          SHA: ${{ inputs.sha != '' && inputs.sha || github.event.pull_request.head.sha }}
         run: node .deployed-asset-check/scripts/wait-for-vercel-preview.ts
 
       - name: Check every reference resolves
+        env:
+          TARGET: ${{ inputs.base_url != '' && inputs.base_url || steps.preview.outputs.url }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          REQUEST_CONCURRENCY: ${{ inputs.request_concurrency }}
         run: |
           node .deployed-asset-check/scripts/check-deployed-assets.ts \
-            "${{ steps.preview.outputs.url }}" \
-            --max-pages "${{ inputs.max-pages }}" \
-            --concurrency "${{ inputs.concurrency }}"
+            "$TARGET" --max-pages "$MAX_PAGES" --concurrency "$REQUEST_CONCURRENCY"

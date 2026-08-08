@@ -1,0 +1,25 @@
+name: Self test
+
+# Calls the reusable workflow against a known-good live site. Unit tests cover
+# the scripts; this covers the workflow file itself, which they cannot reach —
+# a bad expression in it fails at startup with no job and no log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Site to check'
+        type: string
+        required: true
+        default: 'https://www.dietistehannevannuffel.be'
+  schedule:
+    # Catches a runner or actions-version change breaking the gate while no one
+    # happens to be opening a pull request.
+    - cron: '0 6 * * 1'
+
+jobs:
+  check:
+    uses: ./.github/workflows/asset-check.yml
+    with:
+      base_url: ${{ inputs.base_url || 'https://www.dietistehannevannuffel.be' }}
+      max_pages: 10
