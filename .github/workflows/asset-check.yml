@@ -32,6 +32,10 @@ on:
         default: 8
 
 jobs:
+  # These must be granted by the calling job too. A called workflow may only
+  # narrow the caller's permissions, never widen them, and the default token is
+  # `read` — which covers contents and metadata but *not* deployments. A caller
+  # that omits them fails at startup with no job and no log to explain why.
   deployed-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 20

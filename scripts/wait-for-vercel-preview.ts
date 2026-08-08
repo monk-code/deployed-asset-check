@@ -44,8 +44,23 @@ const api = async <T>(path: string, token: string): Promise<T | null> => {
         'user-agent': 'monkcode-preview-wait',
       },
     });
+
+    /*
+     * Never poll through an auth failure. Without `deployments: read` on the
+     * calling job every read is a 403, which is indistinguishable from "not
+     * deployed yet" — the run would sit for the whole timeout and then blame
+     * Vercel for a permissions mistake.
+     */
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `GitHub answered ${response.status} for ${path}. The calling job needs ` +
+          'permissions: { contents: read, deployments: read }.'
+      );
+    }
+
     return response.ok ? ((await response.json()) as T) : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('GitHub answered')) throw error;
     // Fails open: a transient 5xx costs one poll, not the whole run.
     return null;
   }

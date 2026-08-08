@@ -19,6 +19,9 @@ on:
 
 jobs:
   check:
+    permissions:
+      contents: read
+      deployments: read
     uses: ./.github/workflows/asset-check.yml
     with:
       base_url: ${{ inputs.base_url || 'https://www.dietistehannevannuffel.be' }}
