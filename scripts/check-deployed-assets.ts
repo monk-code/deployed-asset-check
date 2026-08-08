@@ -230,6 +230,26 @@ export const checkDeployment = async ({
     const response = await request(pageUrl, 'GET');
     const contentType = response.headers.get('content-type');
 
+    /*
+     * Vercel Deployment Protection answers every path with a redirect to its
+     * own SSO app, which is itself a perfectly healthy site. Following that and
+     * carrying on means crawling Vercel's login page and reporting its assets
+     * as this deploy's broken references — 84 of them, on the first real run.
+     */
+    if (pageUrl === base.href && new URL(response.url).origin !== base.origin) {
+      return [
+        {
+          url: pageUrl,
+          kind: 'page',
+          from: 'entry point',
+          reason:
+            `entry point redirected to ${new URL(response.url).origin}, so this is not the ` +
+            'deploy under test. Vercel Deployment Protection does this — either disable it ' +
+            'for preview deployments or supply a protection bypass.',
+        },
+      ];
+    }
+
     if (!response.ok || !isHtml(contentType)) {
       /*
        * A linked page that fails is already reported, because it was reached as
