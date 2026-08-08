@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { readVerdict } from './wait-for-vercel-preview.ts';
+import { hasNoVercelIntegration, readVerdict } from './wait-for-vercel-preview.ts';
 
 test('returns the preview URL once Vercel reports success', () => {
   const verdict = readVerdict({
@@ -30,4 +30,16 @@ test('stops on a failed deployment rather than waiting out the timeout', () => {
 test('treats success without a URL as a failure', () => {
   const verdict = readVerdict({ state: 'success', environment_url: null });
   assert.equal(verdict.kind, 'failed');
+});
+
+test('treats a repo with no deployments at all as not wired to Vercel', () => {
+  assert.equal(hasNoVercelIntegration([], []), true);
+});
+
+test('keeps waiting when the repo has deployed before but not for this commit', () => {
+  assert.equal(hasNoVercelIntegration([], [{ id: 1 }]), false);
+});
+
+test('does not skip when a deployment for the commit already exists', () => {
+  assert.equal(hasNoVercelIntegration([{ id: 2 }], [{ id: 2 }]), false);
 });
