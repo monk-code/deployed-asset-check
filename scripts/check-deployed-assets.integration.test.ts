@@ -4,13 +4,15 @@ import { after, test } from 'node:test';
 
 import { checkDeployment } from './check-deployed-assets.ts';
 
-type Route = { status: number; type: string; body?: string };
+type Route = { status: number; type: string; body?: string; location?: string };
 
 const serve = async (routes: Record<string, Route>): Promise<{ url: string; server: Server }> => {
   const server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     const route = routes[path] ?? { status: 404, type: 'text/html', body: '<html>404</html>' };
-    res.writeHead(route.status, { 'content-type': route.type });
+    const headers: Record<string, string> = { 'content-type': route.type };
+    if (route.location) headers.location = route.location;
+    res.writeHead(route.status, headers);
     res.end(route.body ?? '');
   });
 
@@ -77,4 +79,24 @@ test('still reports a linked page that 404s, rather than aborting the crawl', as
   assert.equal(failures.length, 1);
   assert.match(failures[0].url, /\/gone$/);
   assert.equal(failures[0].reason, 'HTTP 404');
+});
+
+/*
+ * Vercel Deployment Protection redirects every path to its own SSO app, which
+ * is a healthy site — so without this guard the crawl succeeds against the
+ * wrong origin and reports that site's assets as this deploy's failures.
+ */
+test('fails when the entry point redirects to a different origin', async () => {
+  const { url: elsewhere, server: other } = await serve({
+    '/login': html('<img src="/their-asset.js">'),
+  });
+  servers.push(other);
+
+  const failures = await check({
+    '/': { status: 302, type: 'text/plain', body: '', location: `${elsewhere}login` },
+  });
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].reason, /redirected to/);
+  assert.equal(failures[0].from, 'entry point');
 });
