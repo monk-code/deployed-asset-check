@@ -30,6 +30,14 @@ on:
         type: number
         required: false
         default: 8
+    secrets:
+      vercel_protection_bypass:
+        description: >-
+          Vercel Protection Bypass for Automation secret. Only needed when the
+          project has Deployment Protection on; without it every path redirects
+          to Vercel SSO and there is nothing to check. Sent to the deployment
+          origin and to nothing else.
+        required: false
 
 jobs:
   # These must be granted by the calling job too. A called workflow may only
@@ -75,6 +83,7 @@ jobs:
           TARGET: ${{ inputs.base_url != '' && inputs.base_url || steps.preview.outputs.url }}
           MAX_PAGES: ${{ inputs.max_pages }}
           REQUEST_CONCURRENCY: ${{ inputs.request_concurrency }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.vercel_protection_bypass }}
         run: |
           node .deployed-asset-check/scripts/check-deployed-assets.ts \
             "$TARGET" --max-pages "$MAX_PAGES" --concurrency "$REQUEST_CONCURRENCY"

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   describeFailure,
   extractReferences,
+  bypassHeaders,
   findCanonicalOrigin,
   parseArgs,
   rewriteSelfOrigin,
@@ -145,4 +146,33 @@ test('takes flags in either order and ignores unknown ones', () => {
 test('ignores a non-numeric or zero flag value so the default stands', () => {
   assert.equal(parseArgs(['https://x.test', '--max-pages', 'lots']).maxPages, undefined);
   assert.equal(parseArgs(['https://x.test', '--concurrency', '0']).concurrency, undefined);
+});
+
+const BYPASS = { origin: 'https://preview.example.com', secret: 's3cret' };
+
+test('sends the bypass secret to the deployment origin', () => {
+  assert.deepEqual(bypassHeaders('https://preview.example.com/a.webp', BYPASS), {
+    'x-vercel-protection-bypass': 's3cret',
+  });
+});
+
+/*
+ * The security property. A crawl reaches whatever the pages reference, so a
+ * secret leaking onto third-party requests would hand a live credential to a
+ * CDN, a font host, or an analytics vendor.
+ */
+test('never sends the bypass secret to a third-party origin', () => {
+  for (const url of [
+    'https://assets.tina.io/abc/x.webp',
+    'https://fonts.gstatic.com/s/x.woff2',
+    'https://evil.example.com/pixel.gif',
+    'http://preview.example.com/a.webp',
+    'https://preview.example.com.evil.test/a.webp',
+  ]) {
+    assert.deepEqual(bypassHeaders(url, BYPASS), {}, `leaked to ${url}`);
+  }
+});
+
+test('sends nothing when no bypass is configured', () => {
+  assert.deepEqual(bypassHeaders('https://preview.example.com/a.webp', null), {});
 });
