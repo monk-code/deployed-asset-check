@@ -53,6 +53,28 @@ Deployment whose ref is the head SHA, so the built-in token is enough to find th
 The job id in your caller is the status check name. To actually gate merges, add it to the
 branch ruleset — otherwise it reports and auto-merge sails past it.
 
+### If the project has Deployment Protection on
+
+Protected previews redirect every path to Vercel SSO, so there is nothing to check — the run fails
+saying so. Generate a **Protection Bypass for Automation** secret (Vercel → Project → Settings →
+Deployment Protection), store it as a repository secret, and pass it through:
+
+```yaml
+jobs:
+  deployed-assets:
+    permissions:
+      contents: read
+      deployments: read
+    uses: monk-code/deployed-asset-check/.github/workflows/asset-check.yml@v1
+    secrets:
+      vercel_protection_bypass: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+```
+
+The secret is sent to the deployment's own origin and to **nothing else**. A crawl reaches whatever
+the pages reference — a CMS asset CDN, Google Fonts, an analytics script — and attaching a
+credential to those requests would hand it to third parties. That scoping is a pure function with
+its own tests, including one that stands up a second server and asserts it never sees the header.
+
 ### Inputs
 
 | Input | Default | Purpose |

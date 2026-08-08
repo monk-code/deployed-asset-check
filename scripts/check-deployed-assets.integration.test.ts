@@ -6,8 +6,12 @@ import { checkDeployment } from './check-deployed-assets.ts';
 
 type Route = { status: number; type: string; body?: string; location?: string };
 
-const serve = async (routes: Record<string, Route>): Promise<{ url: string; server: Server }> => {
+const serve = async (
+  routes: Record<string, Route>,
+  seen?: { headers: Record<string, string>[] }
+): Promise<{ url: string; server: Server }> => {
   const server = createServer((req, res) => {
+    seen?.headers.push(req.headers as Record<string, string>);
     const path = (req.url ?? '/').split('?')[0];
     const route = routes[path] ?? { status: 404, type: 'text/html', body: '<html>404</html>' };
     const headers: Record<string, string> = { 'content-type': route.type };
@@ -99,4 +103,39 @@ test('fails when the entry point redirects to a different origin', async () => {
   assert.equal(failures.length, 1);
   assert.match(failures[0].reason, /redirected to/);
   assert.equal(failures[0].from, 'entry point');
+});
+
+test('sends the bypass to the deploy under test and not to a third party', async () => {
+  const third = { headers: [] as Record<string, string>[] };
+  const { url: cdn, server: cdnServer } = await serve(
+    { '/asset.js': { status: 200, type: 'text/javascript', body: 'x' } },
+    third
+  );
+  servers.push(cdnServer);
+
+  const own = { headers: [] as Record<string, string>[] };
+  const { url, server } = await serve(
+    { '/': html(`<script src="${cdn}asset.js"></script><img src="/mine.webp">`),
+      '/mine.webp': { status: 200, type: 'image/webp', body: 'x' } },
+    own
+  );
+  servers.push(server);
+
+  const failures = await checkDeployment({
+    baseUrl: url,
+    maxPages: 5,
+    concurrency: 2,
+    bypassSecret: 'the-secret',
+  });
+
+  assert.deepEqual(failures, []);
+  assert.ok(
+    own.headers.some((h) => h['x-vercel-protection-bypass'] === 'the-secret'),
+    'the deploy under test never received the bypass'
+  );
+  assert.ok(
+    third.headers.every((h) => h['x-vercel-protection-bypass'] === undefined),
+    'the bypass secret leaked to a third-party origin'
+  );
+  assert.ok(third.headers.length > 0, 'the third-party server was never contacted');
 });

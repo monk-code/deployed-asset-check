@@ -162,8 +162,37 @@ export const describeFailure = (
   return null;
 };
 
-const request = async (url: string, method: 'HEAD' | 'GET'): Promise<Response> =>
-  fetch(url, { method, redirect: 'follow', headers: { 'user-agent': 'monkcode-asset-check' } });
+export interface Bypass {
+  origin: string;
+  secret: string;
+}
+
+/*
+ * Vercel Deployment Protection is lifted by a bypass secret sent as a header.
+ *
+ * It goes to the deployment's own origin and nowhere else. A crawl reaches
+ * whatever the pages reference — a CMS asset CDN, Google Fonts, an analytics
+ * script — and attaching a credential to those requests would hand it to third
+ * parties. Scoping is the entire security property here, so it is a pure
+ * function with its own tests rather than an `if` buried in the fetch.
+ */
+export const bypassHeaders = (url: string, bypass: Bypass | null): Record<string, string> => {
+  if (!bypass) return {};
+  return new URL(url).origin === bypass.origin
+    ? { 'x-vercel-protection-bypass': bypass.secret }
+    : {};
+};
+
+const request = async (
+  url: string,
+  method: 'HEAD' | 'GET',
+  bypass: Bypass | null = null
+): Promise<Response> =>
+  fetch(url, {
+    method,
+    redirect: 'follow',
+    headers: { 'user-agent': 'monkcode-asset-check', ...bypassHeaders(url, bypass) },
+  });
 
 /*
  * HEAD first to avoid pulling image bodies, but never fail on HEAD alone —
@@ -172,13 +201,14 @@ const request = async (url: string, method: 'HEAD' | 'GET'): Promise<Response> =
  */
 const probe = async (
   url: string,
+  bypass: Bypass | null,
   attempts = 3
 ): Promise<{ status: number; type: string | null }> => {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      let response = await request(url, 'HEAD');
-      if (response.status >= 400) response = await request(url, 'GET');
+      let response = await request(url, 'HEAD', bypass);
+      if (response.status >= 400) response = await request(url, 'GET', bypass);
       return { status: response.status, type: response.headers.get('content-type') };
     } catch (error) {
       lastError = error;
@@ -211,15 +241,18 @@ interface Options {
   baseUrl: string;
   maxPages: number;
   concurrency: number;
+  bypassSecret?: string;
 }
 
 export const checkDeployment = async ({
   baseUrl,
   maxPages,
   concurrency,
+  bypassSecret,
 }: Options): Promise<Failure[]> => {
   const base = new URL(baseUrl);
   const selfOrigins = new Set([base.origin]);
+  const bypass = bypassSecret ? { origin: base.origin, secret: bypassSecret } : null;
 
   const queue: string[] = [base.href];
   const visitedPages = new Set<string>([base.href]);
@@ -227,7 +260,7 @@ export const checkDeployment = async ({
 
   while (queue.length > 0 && visitedPages.size <= maxPages) {
     const pageUrl = queue.shift() as string;
-    const response = await request(pageUrl, 'GET');
+    const response = await request(pageUrl, 'GET', bypass);
     const contentType = response.headers.get('content-type');
 
     /*
@@ -300,7 +333,7 @@ export const checkDeployment = async ({
 
   const outcomes = await mapWithConcurrency(targets, concurrency, async (reference) => {
     try {
-      const { status, type } = await probe(reference.url);
+      const { status, type } = await probe(reference.url, bypass);
       const reason = describeFailure(reference.kind, status, type);
       return reason ? { ...reference, reason } : null;
     } catch (error) {
@@ -348,7 +381,12 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  const failures = await checkDeployment({ baseUrl, maxPages, concurrency });
+  // Read from the environment, never a flag: argv shows up in process listings
+  // and in anything that echoes the command.
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim() || undefined;
+  if (bypassSecret) console.log('Using a Vercel protection bypass for the deployment origin.');
+
+  const failures = await checkDeployment({ baseUrl, maxPages, concurrency, bypassSecret });
 
   if (failures.length === 0) {
     console.log('No broken references.');
