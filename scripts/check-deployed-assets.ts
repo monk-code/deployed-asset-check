@@ -228,7 +228,28 @@ export const checkDeployment = async ({
   while (queue.length > 0 && visitedPages.size <= maxPages) {
     const pageUrl = queue.shift() as string;
     const response = await request(pageUrl, 'GET');
-    if (!response.ok || !isHtml(response.headers.get('content-type'))) continue;
+    const contentType = response.headers.get('content-type');
+
+    if (!response.ok || !isHtml(contentType)) {
+      /*
+       * A linked page that fails is already reported, because it was reached as
+       * a reference and gets probed like any other. The entry point is not — so
+       * skipping it here would end the crawl with nothing collected and pass a
+       * wholly broken deploy. Fail loudly instead.
+       */
+      if (pageUrl !== base.href) continue;
+
+      return [
+        {
+          url: pageUrl,
+          kind: 'page',
+          from: 'entry point',
+          reason: response.ok
+            ? `entry point served ${contentType ?? 'no content-type'} rather than HTML`
+            : `HTTP ${response.status}`,
+        },
+      ];
+    }
 
     const html = await response.text();
 
