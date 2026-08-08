@@ -36,8 +36,16 @@ concurrency:
 
 jobs:
   deployed-assets:
+    permissions:
+      contents: read
+      deployments: read
     uses: monk-code/deployed-asset-check/.github/workflows/asset-check.yml@v1
 ```
+
+> **The `permissions` block is required.** A called workflow may only narrow the caller's
+> permissions, never widen them, and the default token is `read` — which covers contents and
+> metadata but *not* deployments. Omit it and the run fails at startup with no job and no log
+> saying why.
 
 No secrets, no Vercel API token, no `pnpm install`. Vercel publishes each preview as a GitHub
 Deployment whose ref is the head SHA, so the built-in token is enough to find the URL.
