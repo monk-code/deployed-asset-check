@@ -1,0 +1,24 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Node 24 runs the .ts scripts directly via type stripping.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # No install step: this repo has no dependencies, by design.
+      - run: node --test 'scripts/**/*.test.ts'
