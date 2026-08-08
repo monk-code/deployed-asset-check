@@ -74,18 +74,36 @@ interface WaitOptions {
   intervalMs?: number;
 }
 
+/*
+ * A repository that has never had a single deployment is not wired to Vercel —
+ * the site template is the case that matters. Waiting out the full timeout and
+ * then failing would make the template's own pull requests unmergeable, so
+ * treat it as nothing to check. A live site always has past deployments, so
+ * this cannot quietly switch off a gate that was ever working.
+ */
+export const hasNoVercelIntegration = (
+  forSha: unknown[] | null,
+  anyEver: unknown[] | null
+): boolean => forSha?.length === 0 && anyEver?.length === 0;
+
 export const waitForPreview = async ({
   repository,
   sha,
   token,
   attempts = 60,
   intervalMs = 15_000,
-}: WaitOptions): Promise<string> => {
+}: WaitOptions): Promise<string | null> => {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const deployments = await api<{ id: number }[]>(
       `/repos/${repository}/deployments?sha=${sha}`,
       token
     );
+
+    if (attempt === 1 && deployments?.length === 0) {
+      const everDeployed = await api<unknown[]>(`/repos/${repository}/deployments?per_page=1`, token);
+      if (hasNoVercelIntegration(deployments, everDeployed)) return null;
+    }
+
     const id = deployments?.[0]?.id;
 
     if (id !== undefined) {
@@ -117,8 +135,13 @@ if (import.meta.main) {
 
   try {
     const url = await waitForPreview({ repository: GITHUB_REPOSITORY, sha, token });
-    console.log(`Preview: ${url}`);
-    if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `url=${url}\n`);
+
+    if (url === null) {
+      console.log(`::notice::${GITHUB_REPOSITORY} has no deployments at all, so there is nothing to check.`);
+    } else {
+      console.log(`Preview: ${url}`);
+      if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `url=${url}\n`);
+    }
   } catch (error) {
     console.error(`::error::${(error as Error).message}`);
     process.exit(1);

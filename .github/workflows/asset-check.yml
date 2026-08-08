@@ -67,7 +67,10 @@ jobs:
           SHA: ${{ inputs.sha != '' && inputs.sha || github.event.pull_request.head.sha }}
         run: node .deployed-asset-check/scripts/wait-for-vercel-preview.ts
 
+      # No URL means the wait step found the repository has never deployed at
+      # all, so there is nothing to check yet.
       - name: Check every reference resolves
+        if: inputs.base_url != '' || steps.preview.outputs.url != ''
         env:
           TARGET: ${{ inputs.base_url != '' && inputs.base_url || steps.preview.outputs.url }}
           MAX_PAGES: ${{ inputs.max_pages }}
