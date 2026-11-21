@@ -30,6 +30,11 @@ on:
         type: number
         required: false
         default: 8
+      runs_on:
+        description: 'Runner label for the check job.'
+        type: string
+        required: false
+        default: 'ubuntu-latest'
     secrets:
       vercel_protection_bypass:
         description: >-
@@ -45,7 +50,7 @@ jobs:
   # `read` — which covers contents and metadata but *not* deployments. A caller
   # that omits them fails at startup with no job and no log to explain why.
   deployed-assets:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs_on }}
     timeout-minutes: 20
     permissions:
       contents: read
